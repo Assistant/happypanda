@@ -1,0 +1,260 @@
+#!/usr/bin/env bash
+
+### happypanda
+#
+# Script to download images from galleries in sad panda
+#
+# Requires: wget, grep, sed, and optionally zip
+#
+###
+
+declare -i ITERATION=0
+declare -i MAX_ITERATION=0
+BAD_PAGE='<td class="ptdd">&gt;<'
+SLEEP="0.1"
+COOKIES_FILE="${HOME%/}/.exhentai.cookies"
+
+help(){
+    echo "Usage: ${0##/*/} (URL)"
+    echo "-c |--cookies (cookies file)    Specifies the cookies file"
+    echo "-d |--digits  (number)          Specifies the number of digits in filenames"
+    echo "-z |--zip                       Zip up files"
+    echo "-s |--skip                      Skip existing files"
+    echo "-S |--skip-dirs                 Skip existing directories"
+    echo "-n |--limit (number)            Number of galleries to download ( 0 = unlimited )"
+    echo "-t |--tags (tag)                Download galleries that match the tags ( URL overrides this )"
+    echo "   |--doujinshi                 Apply the doujinshi filter"
+    echo "   |--manga                     Apply the manga filter"
+    echo "   |--artist-cg                 Apply the artist cg filter"
+    echo "   |--game-cg                   Apply the game cg filter"
+    echo "   |--western                   Apply the western filter"
+    echo "   |--non-h                     Apply the non-h filter"
+    echo "   |--image-set                 Apply the image set filter"
+    echo "   |--cosplay                   Apply the cosplay filter"
+    echo "   |--asian-porn                Apply the asian porn filter"
+    echo "   |--misc                      Apply the misc filter"
+}
+
+incomplete_quit(){
+    [[ ${PAGE} ]] && echo "${PAGE}" > ".incomplete"
+    [[ ${1} ]] && STATUS=${1} || STATUS=5
+    quit ${STATUS}
+}
+
+quit(){
+    [[ ${1} ]] && STATUS=${1} || STATUS=0
+    pushd -0 >/dev/null
+    exit ${STATUS}
+}
+
+get_title(){
+    sleep "${SLEEP}"
+    TITLE="$(wget -c -q --load-cookies="${COOKIES_FILE}" "${1}" -O- | grep -o -E '<h1 id="gn">[^<]*<' | sed 's/.*<h1 id="gn">\([^<]*\)</\1/')"
+}
+
+get_start_page(){
+    sleep "${SLEEP}"
+    if [[ -f .incomplete ]]; then
+        read -r IMAGE_PAGE < .incomplete
+    else
+        local IMAGE_PAGE="$(wget -c -q --load-cookies="${COOKIES_FILE}" "${1}" -O- | grep -o -E '<a href="https://exhentai.org/s/[^"]*"><img' | sed 's/[^"]*"\([^"]*\)".*/\1/' | head -n 1)"
+    fi
+    download_pages "${IMAGE_PAGE}"
+}
+
+get_search_pages(){
+    if [[ ${1} ]]; then
+        local URL="${1}"
+    else
+        local URL="https://exhentai.org/?f_search=${TAGS}&f_apply=Apply+Filter${FILTERS}"
+    fi
+    sleep "${SLEEP}"
+    GALLERIES="$(wget -c -q --load-cookies="${COOKIES_FILE}" "${URL}" -O- | grep -E -o 'https://exhentai.org/g/[^"]*')"
+    for GALLERY in $(echo ${GALLERIES}); do
+        download "${GALLERY}"
+    done
+    sleep "${SLEEP}"
+    local NEXT_PAGE="$(wget -c -q --load-cookies="${COOKIES_FILE}" "${URL}" -O- | grep -E -o '<[^>]*>&gt;<' | head -n 1 | sed -e 's/.*href="\([^"]*\)".*/\1/' -e 's/&amp;/\&/g')"
+    if [[ "${BAD_PAGE}" == "${NEXT_PAGE}" ]]; then
+        return 0
+    else
+        get_search_pages "${NEXT_PAGE}"
+    fi
+}
+
+download_pages(){
+    local CURRENT_PAGE="${1}"
+    PAGE="$(wget -c -q --load-cookies="${COOKIES_FILE}" "${CURRENT_PAGE}" -O-)"
+    local NEXT_PAGE="$(echo "${PAGE}" | grep -o -E '<a id="next" onclick="[^"]*"[^>]*>' | tail -n 1 | sed 's/.*href="\([^"]*\)">/\1/')"
+    local IMAGE="$(echo "${PAGE}" | grep -o -E '<img id="img"[^>]*>' | sed 's/.*src="\([^"]*\)".*/\1/')"
+    sleep "${SLEEP}"
+    download_image "${IMAGE}"
+    if [[ "${CURRENT_PAGE##*-}" -eq "${NEXT_PAGE##*-}" ]]; then
+        rm ".incomplete" 2>/dev/null
+        unset PAGE
+        return 0
+    else
+        download_pages "${NEXT_PAGE}"
+    fi
+}
+
+download_image(){
+    if [[ "${1}" == 'https://exhentai.org/img/509.gif' ]]; then
+        echo "Bandwidth limit exceeded."
+        incomplete_quit 509
+    fi
+    local IMAGE="${1##*/}"
+    if [[ ${DIGITS} ]]; then
+        local FILENAME="$(echo ${IMAGE%%.*} | grep -E -o '[0-9]*')"
+        local FILENAME="$(printf "%0${DIGITS}.0f" "${FILENAME}")"
+        local EXTENSION="${IMAGE##*.}"
+        IMAGE="${FILENAME}${EXTENSION}"
+    fi
+    sleep "${SLEEP}"
+    [[ ${SKIP} ]] && [[ -f "${IMAGE}" ]] && return 1
+    echo "Downloading ${IMAGE}"
+    wget -c -q --load-cookies="${COOKIES_FILE}" "${1}" -O "${IMAGE}"
+}
+
+download(){
+    local URL="${1}"
+    get_title "${URL}"
+    echo "Creating directory: ${TITLE}"
+
+    if [[ ${SKIP_DIRS} ]]; then
+        mkdir "${TITLE}" 2>/dev/null
+        [[ ${?} -ne 0 ]] && echo "Directory exists, skipping" && return 1
+    else
+        mkdir "${TITLE}" 2>/dev/null || echo "Directory exists"
+    fi
+
+    ITERATION+=1
+
+    pushd "${TITLE}" >/dev/null
+
+    get_start_page "${URL}"
+
+    popd >/dev/null
+
+    if [[ ${ZIP} ]]; then
+        ZIP_TITLE="$(echo ${TITLE} | sed 's/ /_/g').zip"
+        echo "Zipping gallery"
+        zip -q -r "${ZIP_TITLE}" "${TITLE}/"
+        echo "Zipped to $(pwd)/${ZIP_TITLE}"
+    fi
+    [[ ${ITERATION} -eq ${MAX_ITERATION} ]] && quit
+}
+
+trap incomplete_quit SIGINT SIGTERM SIGQUIT EXIT
+
+while [ "${#}" -ne 0 ]; do
+    case ${1} in
+        -h|--help)
+            help
+            exit 0
+            ;;
+        -c|--cookies)
+            COOKIES_FILE="${2}"
+            shift
+            shift
+            ;;
+        -d|--digits)
+            DIGITS="${2}"
+            shift
+            shift
+            ;;
+        -z|--zip)
+            ZIP=true
+            shift
+            ;;
+        -s|--skip)
+            SKIP=true
+            shift
+            ;;
+        -S|--skip-dirs)
+            SKIP_DIRS=true
+            shift
+            ;;
+        -n|--limit)
+            MAX_ITERATION=${2}
+            shift
+            shift
+            ;;
+        -t|--tags)
+            TAG="${2}"
+            if [[ ${TAGS} ]]; then
+                TAGS="${TAGS}+$(echo "${TAG}" | sed 's/:/%3A/g')"
+            else
+                TAGS="$(echo "${TAG}" | sed 's/:/%3A/g')"
+            fi
+            SEARCH=true
+            shift
+            shift
+            ;;
+        --doujinshi)
+            FILTERS="${FILTERS}&f_doujinshi=1"
+            SEARCH=true
+            shift
+            ;;
+        --manga)
+            FILTERS="${FILTERS}&f_manga=1"
+            SEARCH=true
+            shift
+            ;;
+        --artist-cg)
+            FILTERS="${FILTERS}&f_artistcg=1"
+            SEARCH=true
+            shift
+            ;;
+        --game-cg)
+            FILTERS="${FILTERS}&f_gamecg=1"
+            SEARCH=true
+            shift
+            ;;
+        --western)
+            FILTERS="${FILTERS}&f_western=1"
+            SEARCH=true
+            shift
+            ;;
+        --non-h)
+            FILTERS="${FILTERS}&f_non-h=1"
+            SEARCH=true
+            shift
+            ;;
+        --image-set)
+            FILTERS="${FILTERS}&f_imageset=1"
+            SEARCH=true
+            shift
+            ;;
+        --cosplay)
+            FILTERS="${FILTERS}&f_cosplay=1"
+            SEARCH=true
+            shift
+            ;;
+        --asian-porn)
+            FILTERS="${FILTERS}&f_asianporn=1"
+            SEARCH=true
+            shift
+            ;;
+        --misc)
+            FILTERS="${FILTERS}&f_misc=1"
+            SEARCH=true
+            shift
+            ;;
+        *)
+            URL="${1}"
+            shift
+            ;;
+    esac
+done
+
+if [[ ! -f "${COOKIES_FILE}" ]]; then
+    echo "Cookies File not found."
+    echo "Put wget format cookies file in ${HOME%/}/.exhentai.cookies"
+    echo "Or specify it with --cookies"
+fi
+if [[ "${URL}" ]]; then
+    download "${URL}"
+else
+    get_search_pages
+fi
