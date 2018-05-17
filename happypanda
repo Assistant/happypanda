@@ -38,7 +38,9 @@ help(){
 }
 
 incomplete_quit(){
-    [[ ${PAGE} ]] && echo "${PAGE}" > ".incomplete"
+    pushd -0 >/dev/null 2>&1
+    dirs -c >/dev/null 2>&1
+    [[ ${CURRENT_PAGE} ]] && echo "${CURRENT_PAGE}" > "${TITLE}/.incomplete"
     [[ ${1} ]] && STATUS=${1} || STATUS=5
     quit ${STATUS}
 }
@@ -61,12 +63,14 @@ get_metadata(){
         local PAGE_TITLE="$(echo -e \{\\n \ \"Title\":\"${2}\",)"
         local PAGE_URL="  \"URL\":\"${1}\","
         local PAGE_DATE="  \"Date\":\"$(date '+%Y-%m-%d %H:%M')\","
+        local PAGE_TYPE="$(echo ${PAGE} | grep -E -o '<[^<]*class="ic"[^>]*>' | sed 's/.*alt="\([^"]*\)".*/  "Type":"\1"/')"
         local PAGE_INFO="$(echo ${PAGE} | grep -E -o '<div id="gdd".*</div><div id="gdr"' | sed -e 's/<div id="gdd"><table><tr>/  /' -e 's: &nbsp;<span.*</span>::' -e 's:</td></tr><tr>:",\n  :g' -e 's:</td><td[^>]*>:":g' -e 's/<[^>]*>\([^:]*\):/"\1":/g' -e 's:</td.*<div id="gdr":",:')"
-        local PAGE_RATING="$(echo ${PAGE} | grep -E -o '<td id="grt1">.*<td id="rating_label"[^<]*' | sed 's!<[^>]*>\([^:]*\):<.*id="rating_count"[^>]*>\([^<]*\).*id="rating_label"[^>]*>\([^:]*\):.\(.*\)!"\1s":"\2",\n"\3":"\4",!')"
+        local PAGE_RATING="$(echo ${PAGE} | grep -E -o '<td id="grt1">.*<td id="rating_label"[^<]*' | sed 's!<[^>]*>\([^:]*\):<.*id="rating_count"[^>]*>\([^<]*\).*id="rating_label"[^>]*>\([^:]*\):.\(.*\)!  "\1s":"\2",\n  "\3":"\4",!')"
         local PAGE_TAGS="$(echo ${PAGE} | grep -E -o '<div id="taglist".*</div><div id="tagmenu_act"' | sed -e 's!:</td><td><div[^>]*>!":[!g' -e 's:<a[^>]*>\([^<]*\)</a>:"\1":g' -e 's:</div><div[^>]*>:,:g' -e 's:</div></td></tr>:],\n    :g' -e 's/<tr><td[^>]*>/"/g' -e 's/<div id="taglist"><table>/  "Tags":{\n    /' -e 's:,\n    </table></div><div id="tagmenu_act":\n  }\n}:')"
         exec 3<> "${2}/metadata.json"
         echo -e "${PAGE_TITLE}"  >&3
         echo -e "${PAGE_URL}"    >&3
+        echo -e "${PAGE_TYPE}"   >&3
         echo -e "${PAGE_DATE}"   >&3
         echo -e "${PAGE_INFO}"   >&3
         echo -e "${PAGE_RATING}" >&3
@@ -77,8 +81,9 @@ get_metadata(){
 
 get_start_page(){
     sleep "${SLEEP}"
-    if [[ -f .incomplete ]]; then
-        read -r IMAGE_PAGE < .incomplete
+    if [[ ${RESUME} ]]; then
+        local IMAGE_PAGE="${RESUME}"
+        RESUME=''
     else
         local IMAGE_PAGE="$(wget -c -q --load-cookies="${COOKIES_FILE}" "${1}" -O- | grep -o -E '<a href="https://exhentai.org/s/[^"]*"><img' | sed 's/[^"]*"\([^"]*\)".*/\1/' | head -n 1)"
     fi
@@ -106,15 +111,14 @@ get_search_pages(){
 }
 
 download_pages(){
-    local CURRENT_PAGE="${1}"
-    PAGE="$(wget -c -q --load-cookies="${COOKIES_FILE}" "${CURRENT_PAGE}" -O-)"
+    CURRENT_PAGE="${1}"
+    local PAGE="$(wget -c -q --load-cookies="${COOKIES_FILE}" "${CURRENT_PAGE}" -O-)"
     local NEXT_PAGE="$(echo "${PAGE}" | grep -o -E '<a id="next" onclick="[^"]*"[^>]*>' | tail -n 1 | sed 's/.*href="\([^"]*\)">/\1/')"
     local IMAGE="$(echo "${PAGE}" | grep -o -E '<img id="img"[^>]*>' | sed 's/.*src="\([^"]*\)".*/\1/')"
     sleep "${SLEEP}"
     download_image "${IMAGE}"
     if [[ "${CURRENT_PAGE##*-}" -eq "${NEXT_PAGE##*-}" ]]; then
         rm ".incomplete" 2>/dev/null
-        unset PAGE
         return 0
     else
         download_pages "${NEXT_PAGE}"
@@ -143,8 +147,12 @@ download(){
     local URL="${1}"
     get_title "${URL}"
     echo "Creating directory: ${TITLE}"
-
-    if [[ ${SKIP_DIRS} ]]; then
+    if [[ -f "${TITLE}/.incomplete" ]];then
+        echo "Resuming download"
+        read -r RESUME < "${TITLE}/.incomplete"
+        get_metadata "${URL}" "${TITLE}"
+        rm "${TITLE}/.incomplete"
+    elif [[ ${SKIP_DIRS} ]]; then
         mkdir "${TITLE}" 2>/dev/null
         DIR_EXISTS=${?}
         get_metadata "${URL}" "${TITLE}"
@@ -171,7 +179,7 @@ download(){
     [[ ${ITERATION} -eq ${MAX_ITERATION} ]] && quit
 }
 
-trap incomplete_quit SIGINT SIGTERM SIGQUIT EXIT
+trap incomplete_quit SIGINT SIGTERM SIGQUIT
 
 while [ "${#}" -ne 0 ]; do
     case ${1} in
