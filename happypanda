@@ -63,10 +63,10 @@ get_metadata(){
         local PAGE_TITLE="$(echo -e \{\\n \ \"Title\":\"${2}\",)"
         local PAGE_URL="  \"URL\":\"${1}\","
         local PAGE_DATE="  \"Date\":\"$(date '+%Y-%m-%d %H:%M')\","
-        local PAGE_TYPE="$(echo ${PAGE} | grep -E -o '<[^<]*class="ic"[^>]*>' | sed 's/.*alt="\([^"]*\)".*/  "Type":"\1"/')"
-        local PAGE_INFO="$(echo ${PAGE} | grep -E -o '<div id="gdd".*</div><div id="gdr"' | sed -e 's/<div id="gdd"><table><tr>/  /' -e 's: &nbsp;<span.*</span>::' -e 's:</td></tr><tr>:",\n  :g' -e 's:</td><td[^>]*>:":g' -e 's/<[^>]*>\([^:]*\):/"\1":/g' -e 's:</td.*<div id="gdr":",:')"
-        local PAGE_RATING="$(echo ${PAGE} | grep -E -o '<td id="grt1">.*<td id="rating_label"[^<]*' | sed 's!<[^>]*>\([^:]*\):<.*id="rating_count"[^>]*>\([^<]*\).*id="rating_label"[^>]*>\([^:]*\):.\(.*\)!  "\1s":"\2",\n  "\3":"\4",!')"
-        local PAGE_TAGS="$(echo ${PAGE} | grep -E -o '<div id="taglist".*</div><div id="tagmenu_act"' | sed -e 's!:</td><td><div[^>]*>!":[!g' -e 's:<a[^>]*>\([^<]*\)</a>:"\1":g' -e 's:</div><div[^>]*>:,:g' -e 's:</div></td></tr>:],\n    :g' -e 's/<tr><td[^>]*>/"/g' -e 's/<div id="taglist"><table>/  "Tags":{\n    /' -e 's:,\n    </table></div><div id="tagmenu_act":\n  }\n}:')"
+        local PAGE_TYPE="$(grep -E -o '<[^<]*class="ic"[^>]*>' <<< ${PAGE} | sed 's/.*alt="\([^"]*\)".*/  "Type":"\1"/')"
+        local PAGE_INFO="$(grep -E -o '<div id="gdd".*</div><div id="gdr"' <<< ${PAGE} | sed -e 's/<div id="gdd"><table><tr>/  /' -e 's: &nbsp;<span.*</span>::' -e 's:</td></tr><tr>:",\n  :g' -e 's:</td><td[^>]*>:":g' -e 's/<[^>]*>\([^:]*\):/"\1":/g' -e 's:</td.*<div id="gdr":",:')"
+        local PAGE_RATING="$(grep -E -o '<td id="grt1">.*<td id="rating_label"[^<]*' <<< ${PAGE} | sed 's!<[^>]*>\([^:]*\):<.*id="rating_count"[^>]*>\([^<]*\).*id="rating_label"[^>]*>\([^:]*\):.\(.*\)!  "\1s":"\2",\n  "\3":"\4",!')"
+        local PAGE_TAGS="$(grep -E -o '<div id="taglist".*</div><div id="tagmenu_act"' <<< ${PAGE} | sed -e 's!:</td><td><div[^>]*>!":[!g' -e 's:<a[^>]*>\([^<]*\)</a>:"\1":g' -e 's:</div><div[^>]*>:,:g' -e 's:</div></td></tr>:],\n    :g' -e 's/<tr><td[^>]*>/"/g' -e 's/<div id="taglist"><table>/  "Tags":{\n    /' -e 's:,\n    </table></div><div id="tagmenu_act":\n  }\n}:')"
         exec 3<> "${2}/metadata.json"
         echo -e "${PAGE_TITLE}"  >&3
         echo -e "${PAGE_URL}"    >&3
