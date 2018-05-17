@@ -17,6 +17,7 @@ happypanda [URL]
 -S |--skip-dirs                 Skip existing directories
 -n |--limit (number)            Number of galleries to download ( 0 = unlimited )
 -t |--tags (tag)                Download galleries that match the tags ( URL overrides this )
+-m |--no-metadata               Do not create a metadata file
    |--doujinshi                 Apply the doujinshi filter
    |--manga                     Apply the manga filter
    |--artist-cg                 Apply the artist cg filter
