@@ -3,9 +3,9 @@
 
 ## Requires
 
-wget, grep, sed, and optionally zip
+wget, grep, sed, and optionally zip and sqlite3.
 
-You will need a [Netscape style cookie](http://www.cookiecentral.com/faq/#3.5) placed in `~/.exhentai.cookie` in order for this script to work.
+You will need your cookies as `name=value;name2=value2` placed in `~/.exhentai.cookie` in order for this script to work. You can also specify the location of your browser's cookie file to autogenerate this. (Only tested with firefox).
 
 ## Usage
 ```
